@@ -1,0 +1,81 @@
+---
+title: "Download_Data"
+author: "Alan Jackson"
+date: "2022-11-11"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+
+library(tidyverse)
+
+googlecrs <- "EPSG:4326" # lat long
+CoH_crs <- "EPSG:2278" # X-Y
+
+#   Set up bounding boxes
+
+Small_df <-  tibble::tribble(   
+  ~Seq, ~Lat, ~Lon,  
+   1, 29.760718,-95.372133,
+   2, 29.752682, -95.356832)
+
+Small_df_sf <- sf::st_as_sf(Small_df, coords=c("Lon", "Lat"), 
+                            crs=googlecrs, agr = "identity")
+
+Small_bbox <- sf::st_bbox(Small_df_sf)
+
+# a = sf::st_sf(a = 1:2, 
+#           geom = sf::st_sfc(sf::st_point(c(-95.372133, 29.760718)), 
+#                         sf::st_point(c(-95.356832, 29.752682))), 
+#           crs = 4326)
+# Small_bbox <- sf::st_bbox(a)
+
+bb <- osmdata::getbb("Houston")
+
+# leaflet::leaflet() %>% 
+#   leaflet::addTiles() %>% # OpenStreetMap by default
+#   leaflet::addCircleMarkers(data=a, 
+#                    radius=2, 
+#                    color="black",
+#                    opacity=1,
+#                    fillOpacity = 1)
+
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+
+#   What features are available?
+osmdata::available_features()
+#   What tags are available?
+osmdata::available_tags("amenity") 
+
+big_streets <- 
+  osmdata::getbb(place_name = "Houston") %>% 
+  osmdata::opq()%>% # Build query
+  osmdata::add_osm_feature(key = "highway", 
+                  value = c("motorway", 
+                            "motorway_link" 
+                            )) %>% # select the big roads
+  osmdata::osmdata_sf(quiet=FALSE) 
+
+parking <- 
+  tmaptools::bb(Small_bbox, output="matrix") %>% # turn bounding box into matrix
+  osmdata::opq(timeout = 50) %>% # Build query
+  osmdata::add_osm_feature(key = "amenity", 
+                           value = "parking" 
+                            ) %>% 
+  osmdata::osmdata_sf(quiet=FALSE) # turn into an sf file
+  
+ggplot() +
+  geom_sf(data = parking$osm_polygons,
+          inherit.aes = FALSE,
+          fill="steelblue",
+          color = "steelblue") +
+  #   coord_sf needs to follow all the geom_sf statements
+  coord_sf(xlim = c(bbox[["xmin"]], bbox[["xmax"]]),
+           ylim = c(bbox[["ymin"]], bbox[["ymax"]]),
+           expand = FALSE,
+           default_crs=googlecrs)  
+```
+
