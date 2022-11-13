@@ -1,0 +1,25 @@
+---
+title: "Get_data"
+author: "Alan Jackson"
+date: "2022-11-11"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+
+library(tidyverse)
+
+googlecrs <- "EPSG:4326" # lat long
+
+big_streets <- 
+  osmdata::getbb(place_name = "Houston") %>% 
+  osmdata::opq()%>% # Build query
+  osmdata::add_osm_feature(key = "highway", 
+                  value = c("motorway", 
+                            "motorway_link" 
+                            )) %>% # select the big roads
+  osmdata::osmdata_sf(quiet=FALSE) 
+
+knitr::opts_chunk$set(echo = TRUE)
+```
+
