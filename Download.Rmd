@@ -9,28 +9,10 @@ output: html_document
 
 library(tidyverse)
 
-googlecrs <- "EPSG:4326" # lat long
+google_crs <- "EPSG:4326" # lat long
 CoH_crs <- "EPSG:2278" # X-Y
 
-#   Set up bounding boxes
-
-Small_df <-  tibble::tribble(   
-  ~Seq, ~Lat, ~Lon,  
-   1, 29.760718,-95.372133,
-   2, 29.752682, -95.356832)
-
-Small_df_sf <- sf::st_as_sf(Small_df, coords=c("Lon", "Lat"), 
-                            crs=googlecrs, agr = "identity")
-
-Small_bbox <- sf::st_bbox(Small_df_sf)
-
-# a = sf::st_sf(a = 1:2, 
-#           geom = sf::st_sfc(sf::st_point(c(-95.372133, 29.760718)), 
-#                         sf::st_point(c(-95.356832, 29.752682))), 
-#           crs = 4326)
-# Small_bbox <- sf::st_bbox(a)
-
-bb <- osmdata::getbb("Houston")
+bbox <- osmdata::getbb(place_name = "Houston")
 
 # leaflet::leaflet() %>% 
 #   leaflet::addTiles() %>% # OpenStreetMap by default
@@ -43,6 +25,48 @@ bb <- osmdata::getbb("Houston")
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
+##        Get census tracts
+
+```{r tracts}
+
+path <- "/home/ajackson/Dropbox/Rprojects/Curated_Data_Files/Census_data/"
+
+Pop <- readRDS(paste0(path, "Pop_data_by_block_2020.rds"))
+ACS <- readRDS(paste0(path, "Income_and_Age_by_BlkGrp_2015_2020.rds"))
+
+#   Let's look at income to decide where to sample
+
+ACS %>% 
+  ggplot(aes(x=Per_cap_incE))+
+  geom_histogram()
+
+bins <- c(0, 20000, 40000, 60000, 80000, 100000, Inf)
+pal <- leaflet::colorBin("YlOrRd", domain = ACS$Per_cap_incE, bins = bins)
+
+leaflet::leaflet() %>%
+  leaflet::addTiles() %>% # OpenStreetMap by default
+  leaflet::addPolygons(data=sf::st_transform(ACS,crs=google_crs),
+                       opacity=5,
+                       fillOpacity=0.4,
+                       color="red",
+                       fillColor = ~pal(Per_cap_incE),
+                       popup = ~as.character(Per_cap_incE),
+                       weight=1,
+                      #  label = ~as.character(Med_incE),
+                      # labelOptions = leaflet::labelOptions(
+                      #   style = list("font-weight" = "normal", padding = "3px 8px"),
+                      #   textsize = "15px",
+                      #   direction = "auto")
+                      ) %>% 
+  leaflet::addLegend(data=sf::st_transform(ACS,crs=google_crs),
+                     pal = pal, values = ~Per_cap_incE, opacity = 0.7, 
+                     title = "Avg Income", position = "bottomright")
+
+
+
+```
+
+
 ```{r}
 
 #   What features are available?
@@ -50,17 +74,18 @@ osmdata::available_features()
 #   What tags are available?
 osmdata::available_tags("amenity") 
 
-big_streets <- 
-  osmdata::getbb(place_name = "Houston") %>% 
-  osmdata::opq()%>% # Build query
-  osmdata::add_osm_feature(key = "highway", 
-                  value = c("motorway", 
-                            "motorway_link" 
-                            )) %>% # select the big roads
-  osmdata::osmdata_sf(quiet=FALSE) 
+# big_streets <- 
+#   osmdata::getbb(place_name = "Houston") %>% 
+#   osmdata::opq()%>% # Build query
+#   osmdata::add_osm_feature(key = "highway", 
+#                   value = c("motorway", 
+#                             "motorway_link" 
+#                             )) %>% # select the big roads
+#   osmdata::osmdata_sf(quiet=FALSE) 
 
 parking <- 
-  tmaptools::bb(Small_bbox, output="matrix") %>% # turn bounding box into matrix
+  osmdata::getbb(place_name = "Houston") %>% 
+  #tmaptools::bb(Small_bbox, output="matrix") %>% # turn bounding box into matrix
   osmdata::opq(timeout = 50) %>% # Build query
   osmdata::add_osm_feature(key = "amenity", 
                            value = "parking" 
@@ -73,9 +98,23 @@ ggplot() +
           fill="steelblue",
           color = "steelblue") +
   #   coord_sf needs to follow all the geom_sf statements
-  coord_sf(xlim = c(bbox[["xmin"]], bbox[["xmax"]]),
-           ylim = c(bbox[["ymin"]], bbox[["ymax"]]),
+  coord_sf(xlim = c(bbox[1,1], bbox[1,2]),
+           ylim = c(bbox[2,1], bbox[2,2]),
            expand = FALSE,
-           default_crs=googlecrs)  
+           default_crs=google_crs)  
+
+leaflet::leaflet() %>%
+  leaflet::addTiles() %>% # OpenStreetMap by default
+  leaflet::addPolygons(data=parking$osm_polygons,
+                   opacity=0,
+                   fillOpacity = 1) %>% 
+  leaflet::addPolygons(data=sf::st_transform(ACS,crs=google_crs),
+                       opacity=5,
+                       fillOpacity=0,
+                       color="red",
+                       weight=1)
+
+
+
 ```
 
