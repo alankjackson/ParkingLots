@@ -331,6 +331,44 @@ leaflet::leaflet() %>%
 
 ```{r census}
 
+#   Calculate %area of each block in buffer
+
+Test_Pop <- Pop %>%  # Clean up file and transform to XY
+  select(GEOID, starts_with("Pop")) %>% 
+  sf::st_transform(crs=CoH_crs) %>% 
+  mutate(area=units::drop_units(sf::st_area(.))) # note area is sq ft
+
+#   Trim census file to AOI
+Contains <-   sf::st_contains(Buffer2000, Test_Pop)
+Test_Pop <- Test_Pop[unlist(Contains),]
+
+Test_buff <- Lot_buffer_1000 %>% # Clean up file and transform to XY
+  select(osm_id) %>% 
+  sf::st_transform(crs=CoH_crs)
+
+Test_out <- sf::st_intersection(Test_Pop, Test_buff) %>% 
+  mutate(Overlap_area = units::drop_units(sf::st_area(geometry))) %>%  # units of ft^2
+  filter(Overlap_area>10) # remove boundary issues
+
+Test_out %>% group_by(GEOID) %>% filter(n()>1)
+
+Diffs <- Test_Pop[!(Test_Pop$GEOID %in% Test_out$GEOID),]
+
+leaflet::leaflet() %>% 
+  leaflet::addTiles() %>% # OpenStreetMap by default
+  leaflet::addPolygons(data=sf::st_transform(Test_buff,crs=google_crs),
+                   color="red",
+                   opacity=1,
+                   weight=2.5,
+                   popup = ~osm_id,
+                   fillOpacity = 0.01) %>% 
+  leaflet::addPolygons(data=sf::st_transform(Test_Pop,crs=google_crs), 
+                   color="black",
+                   opacity=1,
+                   weight=0.5,
+                   popup = ~GEOID,
+                   fillOpacity = 0.01)
+
 ```
 
 
