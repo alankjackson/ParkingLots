@@ -34,6 +34,17 @@ path <- "/home/ajackson/Dropbox/Rprojects/Curated_Data_Files/Census_data/"
 Pop <- readRDS(paste0(path, "Pop_data_by_block_2020.rds"))
 ACS <- readRDS(paste0(path, "Income_and_Age_by_BlkGrp_2015_2020.rds"))
 
+Pop <- 
+  Pop %>%
+  mutate(area=sf::st_area(geometry)) %>% 
+  mutate(area=units::drop_units(area)) %>% 
+  mutate(Pop_density=(Pop/area)*2.59e+6) %>% 
+  mutate(Pop_density=ifelse(Pop<10, NA, Pop_density))
+
+Pop %>% 
+  ggplot(aes(x=area, y=Pop)) +
+  geom_point()
+
 #   Let's look at income to decide where to sample
 
 ACS %>% 
@@ -61,6 +72,39 @@ leaflet::leaflet() %>%
   leaflet::addLegend(data=sf::st_transform(ACS,crs=google_crs),
                      pal = pal, values = ~Per_cap_incE, opacity = 0.7, 
                      title = "Avg Income", position = "bottomright")
+
+
+
+#   Let's look at density to decide where to sample
+
+Pop %>% 
+  ggplot(aes(x=Pop_density))+
+  geom_histogram()
+
+bins <- c(0, 2000, 5000, 10000, 20000, 50000, Inf)
+pal <- leaflet::colorBin("YlOrRd", domain = Pop$Pop_density, bins = bins)
+
+leaflet::leaflet() %>%
+  leaflet::addTiles() %>% # OpenStreetMap by default
+  leaflet::addPolygons(data=sf::st_transform(Pop,crs=google_crs),
+                       opacity=0,
+                       fillOpacity=0.4,
+                       color="red",
+                       fillColor = ~pal(Pop_density),
+                       popup = ~paste("Den=",
+                                     as.character(round(Pop_density)),
+                                     "\nPop=",
+                                     as.character(Pop)),
+                       weight=1,
+                      #  label = ~as.character(Med_incE),
+                      # labelOptions = leaflet::labelOptions(
+                      #   style = list("font-weight" = "normal", padding = "3px 8px"),
+                      #   textsize = "15px",
+                      #   direction = "auto")
+                      ) %>% 
+  leaflet::addLegend(data=sf::st_transform(Pop,crs=google_crs),
+                     pal = pal, values = ~Pop_density, opacity = 0.7, 
+                     title = "People per sq mi", position = "bottomright")
 
 
 
@@ -117,4 +161,182 @@ leaflet::leaflet() %>%
 
 
 ```
+
+##  Make buffers
+
+```{r buffers}
+
+#   Start at 19th and Shepherd, east to Yale, south to 11th, west to Shepherd
+
+Buffer_coord <- as_tibble(rbind(c(29.802783, -95.410146),
+                      c(29.802935, -95.399204),
+                      c(29.790674, -95.398971),
+                      c(29.790514, -95.409865),
+                      c(29.802783, -95.410146)))
+lines <- Buffer_coord %>%
+  sf::st_as_sf(coords = c("V2", "V1"), crs = google_crs) %>%
+  summarise(geometry = sf::st_combine(geometry)) %>%
+  sf::st_cast("LINESTRING")
+
+Buffer300 <- lines %>% #  5 minute walk
+  sf::st_transform(crs=CoH_crs) %>% 
+  sf::st_line_sample(n=250) %>% 
+  sf::st_buffer(dist=1000)
+
+Buffer1000 <- lines %>% 
+  sf::st_transform(crs=CoH_crs) %>% 
+  sf::st_line_sample(n=250) %>% 
+  sf::st_buffer(dist=3000)
+
+Buffer2000 <- lines %>% 
+  sf::st_transform(crs=CoH_crs) %>% 
+  sf::st_line_sample(n=250) %>% 
+  sf::st_buffer(dist=6000)
+
+
+
+leaflet::leaflet() %>%
+  leaflet::addTiles() %>% # OpenStreetMap by default
+  leaflet::addPolygons(data=sf::st_transform(Buffer300, crs=google_crs),
+                   opacity=0.5,
+                   fillOpacity = 0.3) %>% 
+  leaflet::addPolygons(data=sf::st_transform(Buffer1000, crs=google_crs),
+                       color="red",
+                   opacity=0.5,
+                   fillOpacity = 0.3) %>%  
+  leaflet::addPolygons(data=sf::st_transform(Buffer2000, crs=google_crs),
+                       color="green",
+                   opacity=0.5,
+                   fillOpacity = 0.3) 
+
+```
+
+##  People close to parking lots
+
+- Extract the parking lots in the Heights
+- Look at the area distribution and the aspect ratio
+- Select out the larger, rounder lots
+- Create centroids
+- Calculate buffers for each lot at 1000, 2000, and 4000 feet
+- Intersect with census blocks and calc population in each buffer
+
+
+```{r parking vs pop}
+
+#  Create AOI box
+
+bbox <- basemapR::expand_bbox(sf::st_bbox(sf::st_transform(lines, crs=CoH_crs)),
+                              X=150, Y=300, crs_out=google_crs)
+
+#   Extract parking lots in the box
+
+Parking_TF <- sf::st_contains( sf::st_transform(
+                                    sf::st_as_sfc(bbox, crs=google_crs),
+                                    crs=CoH_crs),
+                               sf::st_transform(
+                                    sf::st_as_sfc(parking$osm_polygons,
+                                              crs=google_crs),
+                                    crs=CoH_crs))
+
+Parking_bb <- parking$osm_polygons[unlist(Parking_TF),]
+
+Parking_bb %>% 
+leaflet::leaflet() %>%
+  leaflet::addTiles() %>% # OpenStreetMap by default
+  leaflet::addPolygons( 
+    weight=1,
+    opacity=0.5, fillOpacity = 0.5) %>% 
+  leaflet::addPolygons(data=sf::st_as_sfc(bbox, crs=google_crs), 
+    weight=3,
+    color="red",
+    opacity=0.5, fillOpacity = 0.0) %>% 
+  leaflet::addPolygons(data=sf::st_as_sfc(lines, crs=google_crs), 
+    weight=3,
+    color="green",
+    opacity=0.5, fillOpacity = 0.0)  
+
+```
+
+##        Area distribution
+
+Note there are 325 sq ft per parking space.
+
+```{r areas}
+
+Areas <- sf::st_area(Parking_bb) %>% units::drop_units() %>% 
+  enframe() %>% mutate(value=value*10.764)
+
+Areas %>% 
+  filter(value<20000) %>% 
+  ggplot(aes(x=value)) + 
+  geom_histogram()
+
+#   Approximate number of parking spaces
+sum(Areas$value)/325
+
+# Poly_len <- function(poly){
+#   
+# }
+# 
+# Aspect <- function(polys){
+#   Max_len <- polys %>%
+#     group_by(osm_id) %>% 
+#       sf::st_cast('MULTIPOINT') %>% 
+#       sf::st_cast('POINT') %>% 
+#       summarize(dist=max(sf::st_distance(.))) #%>% 
+#     units::drop_units() %>% 
+#       enframe() %>% 
+#     mutate(value=max(value)) %>% 
+#       #mutate(value=max(value)) %>% 
+#     mutate(value=value*3.28084)  
+#     
+#   Areas <- polys %>% 
+#     sf::st_area() %>% 
+#     units::drop_units() %>% 
+#     enframe() %>% 
+#     mutate(value=value*10.764)
+#   
+#   cbind(Areas, Max_len)
+# }
+
+# Aspect(Parking_bb)
+
+```
+##   Create centroids and buffers
+
+
+```{r centroids}
+
+Centroids <- sf::st_centroid(Parking_bb)
+
+Lot_buffer_1000 <-  Centroids %>% #  5 minute walk
+  sf::st_transform(crs=CoH_crs) %>% 
+  sf::st_buffer(dist=1000) %>% 
+  sf::st_transform(crs=google_crs) 
+
+Parking_bb %>% 
+leaflet::leaflet() %>%
+  leaflet::addTiles() %>% # OpenStreetMap by default
+  leaflet::addPolygons( 
+    weight=1,
+    opacity=0.5, fillOpacity = 0.5) %>% 
+  leaflet::addPolygons(data=sf::st_as_sfc(Lot_buffer_1000, crs=google_crs), 
+    weight=3,
+    color="red",
+    opacity=0.5, fillOpacity = 0.0)
+
+```
+
+##    Intersect buffers with census data
+
+```{r census}
+
+```
+
+
+
+
+
+
+
 
