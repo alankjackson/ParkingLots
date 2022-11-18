@@ -263,16 +263,20 @@ Note there are 325 sq ft per parking space.
 
 ```{r areas}
 
-Areas <- sf::st_area(Parking_bb) %>% units::drop_units() %>% 
-  enframe() %>% mutate(value=value*10.764)
+Parking_bb <- Parking_bb %>%
+  mutate(P_area=units::drop_units(sf::st_area(.))*10.764) %>% 
+  select(osm_id, P_area)
 
-Areas %>% 
-  filter(value<20000) %>% 
-  ggplot(aes(x=value)) + 
+# Areas <- sf::st_area(Parking_bb) %>% units::drop_units() %>% 
+#   enframe() %>% mutate(value=value*10.764)
+
+Parking_bb %>% 
+  filter(P_area<20000) %>% 
+  ggplot(aes(x=P_area)) + 
   geom_histogram()
 
 #   Approximate number of parking spaces
-sum(Areas$value)/325
+sum(Parking_bb$P_area)/325
 
 # Poly_len <- function(poly){
 #   
@@ -334,7 +338,7 @@ leaflet::leaflet() %>%
 #   Calculate %area of each block in buffer
 
 Test_Pop <- Pop %>%  # Clean up file and transform to XY
-  select(GEOID, starts_with("Pop")) %>% 
+  select(GEOID, Households, Households_occ, starts_with("Pop")) %>% 
   sf::st_transform(crs=CoH_crs) %>% 
   mutate(area=units::drop_units(sf::st_area(.))) # note area is sq ft
 
@@ -348,7 +352,9 @@ Test_buff <- Lot_buffer_1000 %>% # Clean up file and transform to XY
 
 Test_out <- sf::st_intersection(Test_Pop, Test_buff) %>% 
   mutate(Overlap_area = units::drop_units(sf::st_area(geometry))) %>%  # units of ft^2
-  filter(Overlap_area>10) # remove boundary issues
+  filter(Overlap_area>10) %>% # remove boundary issues
+  mutate(HH_frac=Households*Overlap_area/area,
+         Pop_frac=Pop*Overlap_area/area)
 
 Test_out %>% group_by(GEOID) %>% filter(n()>1)
 
@@ -370,7 +376,54 @@ leaflet::leaflet() %>%
                    fillOpacity = 0.01)
 
 ```
+##   Calc in each buffer
 
+Largest parking lots have the smallest draw on local population
+(Who wants to live next to a huge parking lot?)
+
+There are plenty of people within a 5 minute walk. Why aren't they supported?
+
+Need:
+
+- restrooms
+- sidewalks
+- shade
+- slower traffic
+- more stop signs and stoplights
+
+
+```{r calc pop in buffer}
+
+#   Collapse Test_out by parking lot id
+
+Buffer_pop <- Test_out %>%
+  sf::st_drop_geometry() %>% # not needed and this speeds things a lot
+  group_by(osm_id) %>% 
+    summarize(Pop=sum(Pop_frac, na.rm=TRUE),
+              HH =sum(HH_frac,  na.rm=TRUE))
+
+Final_buff1000 <- left_join(Buffer_pop,
+                            sf::st_drop_geometry(Parking_bb),
+                            by="osm_id") %>% 
+  mutate(Parking_space=P_area/325)
+
+Final_buff1000 %>% 
+  ggplot(aes(x=Parking_space, y=Pop)) + 
+  geom_point() +
+  labs(title="Population Within a 5 Minute Walk vs. Number of Spaces",
+       x="Number of Parking Spaces (using 325 sq-ft per space)",
+       y="Population from 2020 Census within 1000 Feet")
+
+Final_buff1000 %>% 
+  ggplot(aes(x=Parking_space, y=HH)) + 
+  geom_point() +
+  labs(title="Households Within a 5 Minute Walk vs. Number of Spaces",
+       x="Number of Parking Spaces (using 325 sq-ft per space)",
+       y="Households from 2020 Census within 1000 Feet")
+
+
+
+```
 
 
 
