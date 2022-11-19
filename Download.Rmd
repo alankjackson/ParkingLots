@@ -8,6 +8,8 @@ output: html_document
 ```{r setup, include=FALSE}
 
 library(tidyverse)
+library(GeocodeHou)
+library(postmastr)
 
 google_crs <- "EPSG:4326" # lat long
 CoH_crs <- "EPSG:2278" # X-Y
@@ -390,6 +392,9 @@ Need:
 - shade
 - slower traffic
 - more stop signs and stoplights
+- bike racks or cages
+- bike lanes
+- frequent and reliable transit
 
 
 ```{r calc pop in buffer}
@@ -425,8 +430,198 @@ Final_buff1000 %>%
 
 ```
 
+##   Taxes lost due to parking lots
+
+```{r lost taxes}
+
+Hcad_path <- "/home/ajackson/Dropbox/Rprojects/Curated_Data_Files/"
+df <- readRDS(paste0(Hcad_path, "HCAD/Values_2021.rds"))
+
+#   First pare down file by zipcode
+
+df <- df %>% 
+  filter(site_addr_3=="77008")
+
+#   Pull out just the commercial properties
+
+df <- df %>% 
+  filter(state_class=="F1")
+
+#   Calculate some stuff
+
+df <- df %>% 
+  mutate(bld_ar=as.numeric(bld_ar)) %>% 
+  mutate(land_ar=as.numeric(land_ar)) %>% 
+  mutate(bld_val=as.numeric(bld_val)) %>% 
+  mutate(land_val=as.numeric(land_val)) %>% 
+  mutate(ratio_area=bld_val/land_val) %>% 
+  mutate(ratio_value=bld_val/land_val) %>% 
+  mutate(bld_persqft=bld_val/bld_ar) %>% 
+  mutate(land_persqft=land_val/land_ar) %>% 
+  filter(bld_ar>500) %>% 
+  filter(land_ar>1000) %>% 
+  filter(land_val>0)
+  
+
+#   How big are the commercial buildings?
+
+df %>% 
+  ggplot(aes(x=bld_ar)) +
+  geom_histogram() +
+  labs(title="Building Areas in Zip 77008",
+       x="Area (sq ft)")
+
+#   Value per sq foor for buildings
+
+df %>% 
+  ggplot(aes(x=bld_persqft)) +
+  geom_histogram() +
+  labs(title="Building Value per Square Foot in Zip 77008",
+       x="Dollars per sq-ft")
+
+#   Value per sq foor for land
+
+df %>% 
+  ggplot(aes(x=land_persqft)) +
+  geom_histogram(bins=20) +
+  labs(title="Land Value per Square Foot in Zip 77008",
+       x="Dollars per sq-ft")
+
+```
+
+##   attach lat longs to tax data
+
+```{r geocode}
+
+#   Break out address components
+
+foo <- df %>% mutate(site_addr_1=stringr::str_remove(site_addr_1, " \\d+$")) 
+foo <- pm_identify(foo, var="site_addr_1") # add ID fields
+foo2 <- pm_prep(foo, var="site_addr_1", type="street") # Prep data
+foo2 <- pm_houseFrac_parse(foo2)
+foo2 <- pm_house_parse(foo2)
+foo2 <- pm_streetDir_parse(foo2)
+foo2 <- pm_streetSuf_parse(foo2)
+foo2 <- pm_street_parse(foo2)
+foo2 <- foo2 %>% 
+  mutate(pm.street=str_to_upper(pm.street)) %>% 
+  mutate(pm.street=str_replace(pm.street, " AT ", "/")) %>% 
+  mutate(pm.streetSuf=str_to_upper(pm.streetSuf)) %>% 
+  mutate(pm.preDir=replace_na(pm.preDir, "")) %>% 
+  mutate(pm.sufDir=replace_na(pm.sufDir, "")) %>% 
+  mutate(pm.streetSuf=replace_na(pm.streetSuf, ""))
+foo <- pm_replace(foo2, source=foo)
+
+#   Geocode
+
+match <- NULL
+unmatch <- NULL
+for (i in 1:nrow(foo)){ # exact match
+  if (is.na(foo[i,]$pm.street)) {next}
+  print(paste("i=",i))
+  tmp <- GeocodeHou::match_exactly(foo[i,]$pm.house, 
+                        foo[i,]$pm.preDir,
+                        foo[i,]$pm.street,
+                        foo[i,]$pm.streetSuf, 
+                        foo[i,]$site_addr_3)
+  if (tmp$Success){ #   success
+    print(paste("Success", tmp$Lat, tmp$Lon))
+    match <- cbind(foo[i,], Lat=tmp$Lat, Lon=tmp$Lon) %>% 
+      rbind(., match)
+  } else { #  Fail exact match
+    print(paste("Failed", tmp$Fail))
+    unmatch <- cbind(foo[i,], Fail=tmp$Fail) %>% 
+      rbind(., unmatch)
+  }
+}
+
+#   Bad street type
+
+match_type <- NULL
+unmatch_type <- NULL
+foo2 <- unmatch %>% filter(Fail=="Street_type")
+for (i in 1:nrow(foo2)){ # name repair
+  print(paste("i=",i))
+  tmp <- GeocodeHou::repair_type(foo2[i,]$pm.house, 
+                        foo2[i,]$pm.preDir,
+                        foo2[i,]$pm.street,
+                        foo2[i,]$pm.streetSuf, 
+                        foo2[i,]$site_addr_3)
+  if (tmp$Success){ #   success
+    print(paste("Success", tmp$Lat, tmp$Lon))
+    match_type <- cbind(foo2[i,], Lat=tmp$Lat, Lon=tmp$Lon) %>% 
+      rbind(., match_type)
+  } else { #  Fail exact match
+    print(paste("Failed", tmp$Fail))
+    unmatch_type <- cbind(foo2[i,], tmp) %>% 
+      rbind(., unmatch_type)
+  }
+}
+
+#   Bad street number
+
+match_numb <- NULL
+unmatch_numb <- NULL
+foo2 <- unmatch %>% filter(Fail=="Street_num")
+for (i in 1:nrow(foo2)){ # name repair
+  print(paste("i=",i))
+  tmp <- GeocodeHou::repair_number(foo2[i,]$pm.house, 
+                        foo2[i,]$pm.preDir,
+                        foo2[i,]$pm.street,
+                        foo2[i,]$pm.streetSuf, 
+                        foo2[i,]$site_addr_3)
+  if (tmp$Success){ #   success
+    print(paste("Success", tmp$Lat, tmp$Lon))
+    match_numb <- cbind(foo2[i,], Lat=tmp$Lat, Lon=tmp$Lon) %>% 
+      rbind(., match_numb)
+  } else { #  Fail exact match
+    print(paste("Failed", tmp$Fail))
+    unmatch_numb <- cbind(foo2[i,], tmp) %>% 
+      rbind(., unmatch_numb)
+  }
+}
 
 
+#   Bad street prefix
+
+match_pre <- NULL
+unmatch_pre <- NULL
+foo2 <- unmatch %>% filter(Fail=="Prefix")
+for (i in 1:nrow(foo2)){ # name repair
+  print(paste("i=",i))
+  tmp <- GeocodeHou::repair_prefix(foo2[i,]$pm.house, 
+                        foo2[i,]$pm.preDir,
+                        foo2[i,]$pm.street,
+                        foo2[i,]$pm.streetSuf, 
+                        foo2[i,]$site_addr_3)
+  if (tmp$Success){ #   success
+    print(paste("Success", tmp$Lat, tmp$Lon))
+    match_pre <- cbind(foo2[i,], Lat=tmp$Lat, Lon=tmp$Lon) %>% 
+      rbind(., match_pre)
+  } else { #  Fail exact match
+    print(paste("Failed", tmp$Fail))
+    unmatch_pre <- cbind(foo2[i,], tmp) %>% 
+      rbind(., unmatch_pre)
+  }
+}
+
+#     Combine all for final set
+
+foo2 <- rbind(match_numb, match_pre, match_type) %>% 
+  select(-starts_with("pm"), -Fail)
+
+df2 <- match %>% 
+  select(-starts_with("pm")) %>% 
+  rbind(., foo2)
+  
+
+```
+
+##        Pull out only the tax data near my square
+
+```{r limit to streets}
+
+```
 
 
 
