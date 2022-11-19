@@ -430,6 +430,19 @@ Final_buff1000 %>%
 
 ```
 
+##    Find parking near the most people, and how many people close to largest lot.
+
+```{r biggest and most}
+
+
+
+
+```
+
+
+
+
+
 ##   Taxes lost due to parking lots
 
 ```{r lost taxes}
@@ -621,6 +634,30 @@ df2 <- match %>%
 
 ```{r limit to streets}
 
+#   Extract tax data in the box
+
+Tax_data <- sf::st_transform(
+                sf::st_as_sf(df2, coords = c("Lon", "Lat"), crs = google_crs),
+                  crs=CoH_crs)
+
+tmp <- sf::st_contains( Buffer300, Tax_data)
+
+Tax_data <- Tax_data[unlist(tmp),]
+
+leaflet::leaflet() %>% 
+  leaflet::addTiles() %>% # OpenStreetMap by default
+  leaflet::addPolygons(data=sf::st_transform(Parking_bb, crs=google_crs),
+                   color="blue",
+                   opacity=1,
+                   weight=.5,
+                   popup = ~osm_id,
+                   fillOpacity = 0.5) %>% 
+  leaflet::addCircleMarkers(data=sf::st_transform(Tax_data,crs=google_crs), 
+                   popup = ~as.character(bld_ar),
+                   radius=2, 
+                   color="black",
+                   opacity=1,
+                   fillOpacity = 1)
 ```
 
 
