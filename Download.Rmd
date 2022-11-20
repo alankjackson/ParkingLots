@@ -432,11 +432,42 @@ Final_buff1000 %>%
 
 ##    Find parking near the most people, and how many people close to largest lot.
 
+The parking near the most people has a high-rise low income retirement home and
+an apartment complex within 1000 feet. There are about 800 people who live an
+easy walk from that spot, in the NW corner of the study area.
+
+Diagonally opposite are the largest parking lots. One of the largest, next to a
+shopping center, has only 450 people within an easy walk, and has about 300
+parking spaces - which are never full. A big issue is that the entire area
+between Shepherd and Durham is basically a wasteland of parking lots, large
+stores, and car dealerships. Little housing, though up by 20th street that is
+changing with newly constructed apartment complexes.
+
 ```{r biggest and most}
 
+osm_max <- "1112562906"
+osm_max2 <- "1112417014"
+osm_lot <- "1113421679"
 
+Two_buffer_1000 <-  Centroids %>%
+  filter(osm_id %in% c(osm_max, osm_max2, osm_lot)) %>% 
+  sf::st_transform(crs=CoH_crs) %>% 
+  sf::st_buffer(dist=1000) %>% 
+  sf::st_transform(crs=google_crs) 
 
+Two_lots <- Parking_bb %>% 
+  filter(osm_id %in% c(osm_max, osm_max2,  osm_lot))  
 
+Two_lots %>% 
+leaflet::leaflet() %>%
+  leaflet::addTiles() %>% # OpenStreetMap by default
+  leaflet::addPolygons( 
+    weight=1,
+    opacity=0.5, fillOpacity = 0.5) %>% 
+  leaflet::addPolygons(data=sf::st_as_sfc(Two_buffer_1000, crs=google_crs), 
+    weight=3,
+    color="red",
+    opacity=0.5, fillOpacity = 0.0)
 ```
 
 
