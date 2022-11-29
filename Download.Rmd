@@ -691,6 +691,40 @@ leaflet::leaflet() %>%
                    fillOpacity = 1)
 ```
 
+##        Distribution of $ per sq foot for commercial property
+
+```{r dollars per sqft}
+
+Tax_data %>% 
+  ggplot(aes(x=bld_persqft)) +
+  geom_histogram()
+
+#   bld_ar is floor space
+
+Tax_data %>% 
+  ggplot(aes(x=bld_ar)) +
+  geom_histogram()
+
+Tax_data %>% 
+  ggplot(aes(x=land_persqft)) +
+  geom_histogram()
+
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
