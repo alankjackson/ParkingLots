@@ -479,7 +479,7 @@ leaflet::leaflet() %>%
 ```{r lost taxes}
 
 Hcad_path <- "/home/ajackson/Dropbox/Rprojects/Curated_Data_Files/"
-df <- readRDS(paste0(Hcad_path, "HCAD/Values_2021.rds"))
+df <- readRDS(paste0(Hcad_path, "HCAD/Values_2022.rds"))
 
 #   First pare down file by zipcode
 
@@ -693,6 +693,15 @@ leaflet::leaflet() %>%
 
 ##        Distribution of $ per sq foot for commercial property
 
+The distribution of value per square foot is quite wide, but there is a distinct
+clustering by age - not surprisingly newer building are generally more valuable
+than older buildings.
+
+For buildings built before 2000, the mean value is $50 per sq-ft, and the median
+value is $38 per sq-ft. For newer buildings, 2000 and more recent, the same 
+values are $115 and $120 respectively. For land value the distribution is very
+tight, and the value is $68 per sq-ft.
+
 ```{r dollars per sqft}
 
 Tax_data %>% 
@@ -709,10 +718,173 @@ Tax_data %>%
   ggplot(aes(x=land_persqft)) +
   geom_histogram()
 
+Tax_data %>% 
+  mutate(yr_impr=as.numeric(yr_impr)) %>% 
+  ggplot(aes(x=bld_persqft, y=yr_impr)) + 
+  geom_point() +
+  geom_smooth(method="lm")
+
+Tax_data %>% 
+  filter(yr_impr>=2000) %>% 
+  summary()
+
+Tax_data %>% 
+  filter(yr_impr<2000) %>% 
+  summary()
+
 ```
 
 
+##    interlude for old buildings
 
+
+```{r old buildings}
+
+Old <- readRDS(paste0(Hcad_path, "HCAD/Values_2022.rds")) %>% 
+  mutate(yr_impr=as.numeric(yr_impr)) 
+
+Old <- Old %>% 
+  filter(yr_impr>1860 & yr_impr<1910)
+
+#   Break out address components
+
+foo <- Old %>% mutate(site_addr_1=stringr::str_remove(site_addr_1, " \\d+$")) 
+foo <- pm_identify(foo, var="site_addr_1") # add ID fields
+foo2 <- pm_prep(foo, var="site_addr_1", type="street") # Prep data
+foo2 <- pm_houseFrac_parse(foo2)
+foo2 <- pm_house_parse(foo2)
+foo2 <- pm_streetDir_parse(foo2)
+foo2 <- pm_streetSuf_parse(foo2)
+foo2 <- pm_street_parse(foo2)
+foo2 <- foo2 %>% 
+  mutate(pm.street=str_to_upper(pm.street)) %>% 
+  mutate(pm.street=str_replace(pm.street, " AT ", "/")) %>% 
+  mutate(pm.streetSuf=str_to_upper(pm.streetSuf)) %>% 
+  mutate(pm.preDir=replace_na(pm.preDir, "")) %>% 
+  mutate(pm.sufDir=replace_na(pm.sufDir, "")) %>% 
+  mutate(pm.streetSuf=replace_na(pm.streetSuf, ""))
+foo <- pm_replace(foo2, source=foo)
+
+#   Geocode
+
+match <- NULL
+unmatch <- NULL
+for (i in 1:nrow(foo)){ # exact match
+  if (is.na(foo[i,]$pm.street)) {next}
+  print(paste("i=",i))
+  tmp <- GeocodeHou::match_exactly(foo[i,]$pm.house, 
+                        foo[i,]$pm.preDir,
+                        foo[i,]$pm.street,
+                        foo[i,]$pm.streetSuf, 
+                        foo[i,]$site_addr_3)
+  if (tmp$Success){ #   success
+    print(paste("Success", tmp$Lat, tmp$Lon))
+    match <- cbind(foo[i,], Lat=tmp$Lat, Lon=tmp$Lon) %>% 
+      rbind(., match)
+  } else { #  Fail exact match
+    print(paste("Failed", tmp$Fail))
+    unmatch <- cbind(foo[i,], Fail=tmp$Fail) %>% 
+      rbind(., unmatch)
+  }
+}
+#   Bad street type
+
+match_type <- NULL
+unmatch_type <- NULL
+foo2 <- unmatch %>% filter(Fail=="Street_type")
+for (i in 1:nrow(foo2)){ # name repair
+  print(paste("i=",i))
+  tmp <- GeocodeHou::repair_type(foo2[i,]$pm.house, 
+                        foo2[i,]$pm.preDir,
+                        foo2[i,]$pm.street,
+                        foo2[i,]$pm.streetSuf, 
+                        foo2[i,]$site_addr_3)
+  if (tmp$Success){ #   success
+    print(paste("Success", tmp$Lat, tmp$Lon))
+    match_type <- cbind(foo2[i,], Lat=tmp$Lat, Lon=tmp$Lon) %>% 
+      rbind(., match_type)
+  } else { #  Fail exact match
+    print(paste("Failed", tmp$Fail))
+    unmatch_type <- cbind(foo2[i,], tmp) %>% 
+      rbind(., unmatch_type)
+  }
+}
+
+#   Bad street number
+
+match_numb <- NULL
+unmatch_numb <- NULL
+foo2 <- unmatch %>% filter(Fail=="Street_num")
+for (i in 1:nrow(foo2)){ # name repair
+  print(paste("i=",i))
+  tmp <- GeocodeHou::repair_number(foo2[i,]$pm.house, 
+                        foo2[i,]$pm.preDir,
+                        foo2[i,]$pm.street,
+                        foo2[i,]$pm.streetSuf, 
+                        foo2[i,]$site_addr_3)
+  if (tmp$Success){ #   success
+    print(paste("Success", tmp$Lat, tmp$Lon))
+    match_numb <- cbind(foo2[i,], Lat=tmp$Lat, Lon=tmp$Lon) %>% 
+      rbind(., match_numb)
+  } else { #  Fail exact match
+    print(paste("Failed", tmp$Fail))
+    unmatch_numb <- cbind(foo2[i,], tmp) %>% 
+      rbind(., unmatch_numb)
+  }
+}
+
+
+#   Bad street prefix
+
+match_pre <- NULL
+unmatch_pre <- NULL
+foo2 <- unmatch %>% filter(Fail=="Prefix")
+for (i in 1:nrow(foo2)){ # name repair
+  print(paste("i=",i))
+  tmp <- GeocodeHou::repair_prefix(foo2[i,]$pm.house, 
+                        foo2[i,]$pm.preDir,
+                        foo2[i,]$pm.street,
+                        foo2[i,]$pm.streetSuf, 
+                        foo2[i,]$site_addr_3)
+  if (tmp$Success){ #   success
+    print(paste("Success", tmp$Lat, tmp$Lon))
+    match_pre <- cbind(foo2[i,], Lat=tmp$Lat, Lon=tmp$Lon) %>% 
+      rbind(., match_pre)
+  } else { #  Fail exact match
+    print(paste("Failed", tmp$Fail))
+    unmatch_pre <- cbind(foo2[i,], tmp) %>% 
+      rbind(., unmatch_pre)
+  }
+}
+
+#     Combine all for final set
+
+foo2 <- rbind(match_numb, match_pre, match_type) %>% 
+  select(-starts_with("pm"), -Fail)
+
+Old2 <- match %>% 
+  select(-starts_with("pm")) %>% 
+  rbind(., foo2)
+  
+Old_data <- sf::st_transform(
+                sf::st_as_sf(Old2, coords = c("Lon", "Lat"), crs = google_crs),
+                  crs=CoH_crs)
+
+leaflet::leaflet() %>% 
+  leaflet::addTiles() %>% # OpenStreetMap by default
+  # leaflet::addPolygons(data=sf::st_transform(Old_data, crs=google_crs),
+  #                  color="blue",
+  #                  opacity=1,
+  #                  weight=.5,
+  #                  popup = ~osm_id,
+  #                  fillOpacity = 0.5) %>% 
+  leaflet::addCircleMarkers(data=sf::st_transform(Old_data,crs=google_crs), 
+                   popup = ~as.character(yr_impr),
+                   radius=2, 
+                   color="black",
+                   opacity=1,
+                   fillOpacity = 1)
+```
 
 
 
