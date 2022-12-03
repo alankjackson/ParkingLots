@@ -732,6 +732,55 @@ Tax_data %>%
   filter(yr_impr<2000) %>% 
   summary()
 
+Tax_data %>% 
+  mutate(tranche=if_else(yr_impr<2000,"Before 2000", "After 2000")) %>% 
+  sf::st_drop_geometry() %>% 
+  group_by(tranche) %>% 
+    summarize(Mean_val=round(mean(bld_persqft)),
+              Med_val =round(median(bld_persqft)),
+              StdDev  =round(sd(bld_persqft)),
+              NumVal  =n()) %>% 
+  arrange(desc(tranche)) %>% 
+  gt::gt() %>% 
+  gt::tab_header(
+    title="Values per Square Foot",
+    subtitle="Commercial Buildings in the Heights"
+  ) %>% 
+  gt::fmt_currency(
+    columns=c(Mean_val,	Med_val,	StdDev)
+  ) %>% 
+  gt::cols_label(
+    tranche="Year Range",
+    Mean_val="Mean",
+    Med_val="Median",
+    StdDev="Std Dev",
+    NumVal="Samples"
+  )
+
+```
+
+##    Lost taxes
+
+```{r lost revenue}
+
+Building_value <- 115 # dollars per sq foot
+
+Tax_rate <- sum(1.037200, 0.343730, 0.030550, 0.007990, 0.148310, 0.004900,
+                0.095569, 0.533640)/100
+
+Taxes <- Parking_bb %>% 
+  sf::st_drop_geometry() %>% 
+  mutate(Value=P_area*Building_value) %>% 
+  mutate(Taxes=Value*Tax_rate)
+
+Taxes %>% ggplot(aes(x=Value))+
+  geom_histogram()
+
+Taxes %>% ggplot(aes(x=Taxes))+
+  geom_histogram()
+
+sum(Taxes$Taxes)
+
 ```
 
 
